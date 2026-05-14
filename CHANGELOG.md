@@ -4,6 +4,10 @@
 
 ### Features
 
+- Add AndroidX Navigation 3 support via `sentry-android-navigation3` module ([#TBD](https://github.com/getsentry/sentry-java/pull/TBD))
+  - **Single-stack (Phase 1):** call `SentryNav3NavigationEffect(backStack)` at the nav root for Nav2-equivalent breadcrumbs, idle transactions, `scope.screen`, and `contexts.navigation.backstack` crash context
+  - **Multipane / list-detail (Phase 2):** use `rememberSentryNavStateHolder()` + `rememberSentryNavEntryDecorator(holder)` to share navigation state across panes; Sentry reports all visible routes in `contexts.app.view_names`, uses the detail pane for the active transaction, and includes a `visible` array in navigation breadcrumbs and crash context
+  - Low-level API: `rememberSentryNavEntryDecorator(backStack)` is still available for apps that need direct access to the `NavEntryDecorator`
 - Add support to configure reporting historical ANRs via `AndroidManifest.xml` using the  `io.sentry.anr.report-historical` attribute ([#5387](https://github.com/getsentry/sentry-java/pull/5387))
 
 ### Dependencies

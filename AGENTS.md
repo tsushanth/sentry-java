@@ -106,7 +106,7 @@ The repository is organized into multiple modules:
 - **Logging**: `sentry-logback`, `sentry-log4j2`, `sentry-jul`
 - **Web**: `sentry-servlet*`, `sentry-okhttp`, `sentry-apache-http-client-5`
 - **GraphQL**: `sentry-graphql*`, `sentry-apollo*`
-- **Android UI**: `sentry-android-fragment`, `sentry-android-navigation`, `sentry-compose`
+- **Android UI**: `sentry-android-fragment`, `sentry-android-navigation`, `sentry-android-navigation3`, `sentry-compose`
 - **Reactive**: `sentry-reactor`, `sentry-ktor-client`
 - **Monitoring**: `sentry-opentelemetry*`, `sentry-quartz`
 

@@ -48,6 +48,9 @@ buildscript {
 }
 
 apiValidation {
+    ignoredClasses.add(
+        "io.sentry.android.navigation3.ComposableSingletons\$SentryNavEntryDecoratorKt"
+    )
     ignoredPackages.addAll(
         setOf(
             "io.sentry.android.core.internal"
@@ -125,6 +128,7 @@ subprojects {
         "sentry-android-core",
         "sentry-android-fragment",
         "sentry-android-navigation",
+        "sentry-android-navigation3",
         "sentry-android-ndk",
         "sentry-android-sqlite",
         "sentry-android-replay",
