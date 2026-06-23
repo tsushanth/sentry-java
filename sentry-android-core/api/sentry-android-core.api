@@ -269,6 +269,49 @@ public abstract class io/sentry/android/core/EnvelopeFileObserverIntegration : i
 	public final fun register (Lio/sentry/IScopes;Lio/sentry/SentryOptions;)V
 }
 
+public final class io/sentry/android/core/ExtendedAppStartSpan : io/sentry/ISpan {
+	public fun <init> (Lio/sentry/SentryDate;)V
+	public fun addFeatureFlag (Ljava/lang/String;Ljava/lang/Boolean;)V
+	public fun finish ()V
+	public fun finish (Lio/sentry/SpanStatus;)V
+	public fun finish (Lio/sentry/SpanStatus;Lio/sentry/SentryDate;)V
+	public fun getContexts ()Lio/sentry/protocol/Contexts;
+	public fun getData (Ljava/lang/String;)Ljava/lang/Object;
+	public fun getDescription ()Ljava/lang/String;
+	public fun getFinishDate ()Lio/sentry/SentryDate;
+	public fun getOperation ()Ljava/lang/String;
+	public fun getSamplingDecision ()Lio/sentry/TracesSamplingDecision;
+	public fun getSpanContext ()Lio/sentry/SpanContext;
+	public fun getStartDate ()Lio/sentry/SentryDate;
+	public fun getStatus ()Lio/sentry/SpanStatus;
+	public fun getTag (Ljava/lang/String;)Ljava/lang/String;
+	public fun getThrowable ()Ljava/lang/Throwable;
+	public fun isFinished ()Z
+	public fun isNoOp ()Z
+	public fun isSampled ()Ljava/lang/Boolean;
+	public fun makeCurrent ()Lio/sentry/ISentryLifecycleToken;
+	public fun materialize (Lio/sentry/ISpan;)V
+	public fun setContext (Ljava/lang/String;Ljava/lang/Object;)V
+	public fun setData (Ljava/lang/String;Ljava/lang/Object;)V
+	public fun setDescription (Ljava/lang/String;)V
+	public fun setMeasurement (Ljava/lang/String;Ljava/lang/Number;)V
+	public fun setMeasurement (Ljava/lang/String;Ljava/lang/Number;Lio/sentry/MeasurementUnit;)V
+	public fun setOperation (Ljava/lang/String;)V
+	public fun setStatus (Lio/sentry/SpanStatus;)V
+	public fun setTag (Ljava/lang/String;Ljava/lang/String;)V
+	public fun setThrowable (Ljava/lang/Throwable;)V
+	public fun startChild (Lio/sentry/SpanContext;Lio/sentry/SpanOptions;)Lio/sentry/ISpan;
+	public fun startChild (Ljava/lang/String;)Lio/sentry/ISpan;
+	public fun startChild (Ljava/lang/String;Ljava/lang/String;)Lio/sentry/ISpan;
+	public fun startChild (Ljava/lang/String;Ljava/lang/String;Lio/sentry/SentryDate;Lio/sentry/Instrumenter;)Lio/sentry/ISpan;
+	public fun startChild (Ljava/lang/String;Ljava/lang/String;Lio/sentry/SentryDate;Lio/sentry/Instrumenter;Lio/sentry/SpanOptions;)Lio/sentry/ISpan;
+	public fun startChild (Ljava/lang/String;Ljava/lang/String;Lio/sentry/SpanOptions;)Lio/sentry/ISpan;
+	public fun toBaggageHeader (Ljava/util/List;)Lio/sentry/BaggageHeader;
+	public fun toSentryTrace ()Lio/sentry/SentryTraceHeader;
+	public fun traceContext ()Lio/sentry/TraceContext;
+	public fun updateEndDate (Lio/sentry/SentryDate;)Z
+}
+
 public final class io/sentry/android/core/FeedbackShakeIntegration : android/app/Application$ActivityLifecycleCallbacks, io/sentry/Integration, java/io/Closeable {
 	public fun <init> (Landroid/app/Application;)V
 	public fun close ()V
@@ -735,12 +778,14 @@ public class io/sentry/android/core/performance/ActivityLifecycleTimeSpan : java
 	public final fun getOnStart ()Lio/sentry/android/core/performance/TimeSpan;
 }
 
-public class io/sentry/android/core/performance/AppStartMetrics : io/sentry/android/core/performance/ActivityLifecycleCallbacksAdapter {
+public class io/sentry/android/core/performance/AppStartMetrics : io/sentry/android/core/performance/ActivityLifecycleCallbacksAdapter, io/sentry/IAppStartExtender {
 	public static final field staticLock Lio/sentry/util/AutoClosableReentrantLock;
 	public fun <init> ()V
 	public fun addActivityLifecycleTimeSpans (Lio/sentry/android/core/performance/ActivityLifecycleTimeSpan;)V
 	public fun clear ()V
 	public fun createProcessInitSpan ()Lio/sentry/android/core/performance/TimeSpan;
+	public fun extendAppStart ()V
+	public fun finishAppStart ()V
 	public fun getActivityLifecycleTimeSpans ()Ljava/util/List;
 	public fun getAppStartBaggageHeader ()Ljava/lang/String;
 	public fun getAppStartContinuousProfiler ()Lio/sentry/IContinuousProfiler;
@@ -757,9 +802,14 @@ public class io/sentry/android/core/performance/AppStartMetrics : io/sentry/andr
 	public fun getApplicationOnCreateTimeSpan ()Lio/sentry/android/core/performance/TimeSpan;
 	public fun getClassLoadedUptimeMs ()J
 	public fun getContentProviderOnCreateTimeSpans ()Ljava/util/List;
+	public fun getExtendedAppStartEndTime ()Lio/sentry/SentryDate;
+	public fun getExtendedAppStartSpan ()Lio/sentry/ISpan;
 	public static fun getInstance ()Lio/sentry/android/core/performance/AppStartMetrics;
+	public fun getPendingExtendedAppStartSpan ()Lio/sentry/android/core/ExtendedAppStartSpan;
 	public fun getSdkInitTimeSpan ()Lio/sentry/android/core/performance/TimeSpan;
 	public fun isAppLaunchedInForeground ()Z
+	public fun isExtendedAppStartPending ()Z
+	public fun markExtendedAppStartMaterialized ()V
 	public fun onActivityCreated (Landroid/app/Activity;Landroid/os/Bundle;)V
 	public fun onActivityDestroyed (Landroid/app/Activity;)V
 	public fun onActivityPaused (Landroid/app/Activity;)V

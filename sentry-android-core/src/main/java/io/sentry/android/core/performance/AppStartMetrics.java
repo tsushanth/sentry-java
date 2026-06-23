@@ -14,15 +14,23 @@ import android.os.SystemClock;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import io.sentry.IAppStartExtender;
 import io.sentry.IContinuousProfiler;
 import io.sentry.ISentryLifecycleToken;
+import io.sentry.ISpan;
 import io.sentry.ITransactionProfiler;
 import io.sentry.NoOpLogger;
+import io.sentry.NoOpSpan;
+import io.sentry.Sentry;
 import io.sentry.SentryDate;
+import io.sentry.SentryLevel;
+import io.sentry.SpanStatus;
 import io.sentry.TracesSamplingDecision;
+import io.sentry.android.core.AndroidDateUtils;
 import io.sentry.android.core.BuildInfoProvider;
 import io.sentry.android.core.ContextUtils;
 import io.sentry.android.core.CurrentActivityHolder;
+import io.sentry.android.core.ExtendedAppStartSpan;
 import io.sentry.android.core.SentryAndroidOptions;
 import io.sentry.android.core.internal.util.FirstDrawDoneListener;
 import io.sentry.protocol.SentryId;
@@ -49,7 +57,8 @@ import org.jetbrains.annotations.TestOnly;
  * if the app was launched in foreground
  */
 @ApiStatus.Internal
-public class AppStartMetrics extends ActivityLifecycleCallbacksAdapter {
+public class AppStartMetrics extends ActivityLifecycleCallbacksAdapter
+    implements IAppStartExtender {
   public interface HeadlessAppStartListener {
     void onHeadlessAppStart();
   }
@@ -98,6 +107,8 @@ public class AppStartMetrics extends ActivityLifecycleCallbacksAdapter {
   private @Nullable String appStartBaggageHeader;
   private @Nullable SentryDate appStartEndTime;
   private @Nullable ApplicationStartInfo cachedStartInfo;
+  private @Nullable ExtendedAppStartSpan extendedAppStartSpan;
+  private boolean extendedAppStartMaterialized = false;
 
   public static @NotNull AppStartMetrics getInstance() {
     if (instance == null) {
@@ -336,6 +347,82 @@ public class AppStartMetrics extends ActivityLifecycleCallbacksAdapter {
     return new TimeSpan();
   }
 
+  // region app start extension
+
+  @Override
+  public void extendAppStart() {
+    try (final @NotNull ISentryLifecycleToken ignored = staticLock.acquire()) {
+      if (extendedAppStartSpan != null) {
+        Sentry.getCurrentScopes()
+            .getOptions()
+            .getLogger()
+            .log(SentryLevel.WARNING, "App start is already being extended.");
+        return;
+      }
+      if (!shouldSendStartMeasurements()
+          || activeActivitiesCounter.get() > 0
+          || firstDrawDone.get()) {
+        Sentry.getCurrentScopes()
+            .getOptions()
+            .getLogger()
+            .log(
+                SentryLevel.WARNING,
+                "Cannot extend app start: the app start window has already passed.");
+        return;
+      }
+      extendedAppStartSpan = new ExtendedAppStartSpan(AndroidDateUtils.getCurrentSentryDateTime());
+    }
+  }
+
+  @Override
+  public void finishAppStart() {
+    final @Nullable ExtendedAppStartSpan span = extendedAppStartSpan;
+    if (span != null && !span.isFinished()) {
+      span.finish(SpanStatus.OK);
+    }
+  }
+
+  @Override
+  public @NotNull ISpan getExtendedAppStartSpan() {
+    final @Nullable ExtendedAppStartSpan span = extendedAppStartSpan;
+    if (span != null && !span.isFinished()) {
+      return span;
+    }
+    return NoOpSpan.getInstance();
+  }
+
+  /** Whether an extension has been requested but not yet materialized into a real child span. */
+  public boolean isExtendedAppStartPending() {
+    return extendedAppStartSpan != null && !extendedAppStartMaterialized;
+  }
+
+  /** The deferred extended span awaiting materialization, or {@code null} if none is pending. */
+  public @Nullable ExtendedAppStartSpan getPendingExtendedAppStartSpan() {
+    return isExtendedAppStartPending() ? extendedAppStartSpan : null;
+  }
+
+  public void markExtendedAppStartMaterialized() {
+    extendedAppStartMaterialized = true;
+  }
+
+  /**
+   * The effective end of the extended app start, used to extend the app start vital. Returns {@code
+   * null} when no extension finished, or when it finished via the deadline timeout - in the latter
+   * case the vital is suppressed instead of reporting an artificially inflated duration.
+   */
+  public @Nullable SentryDate getExtendedAppStartEndTime() {
+    final @Nullable ExtendedAppStartSpan span = extendedAppStartSpan;
+    if (span == null || !span.isFinished()) {
+      return null;
+    }
+    if (span.getStatus() == SpanStatus.DEADLINE_EXCEEDED) {
+      return null;
+    }
+    return span.getFinishDate();
+  }
+
+  // endregion
+
   @TestOnly
   void setFirstIdle(final long firstIdle) {
     this.firstIdle = firstIdle;
@@ -377,6 +464,8 @@ public class AppStartMetrics extends ActivityLifecycleCallbacksAdapter {
     appStartBaggageHeader = null;
     appStartEndTime = null;
     cachedStartInfo = null;
+    extendedAppStartSpan = null;
+    extendedAppStartMaterialized = false;
   }
 
   public @Nullable ITransactionProfiler getAppStartProfiler() {

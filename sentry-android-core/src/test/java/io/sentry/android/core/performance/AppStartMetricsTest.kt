@@ -11,8 +11,11 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.sentry.DateUtils
 import io.sentry.IContinuousProfiler
+import io.sentry.ISpan
 import io.sentry.ITransactionProfiler
+import io.sentry.NoOpSpan
 import io.sentry.SentryNanotimeDate
+import io.sentry.SpanStatus
 import io.sentry.android.core.ContextUtils
 import io.sentry.android.core.CurrentActivityHolder
 import io.sentry.android.core.SentryAndroidOptions
@@ -1024,4 +1027,115 @@ class AppStartMetricsTest {
 
     assertEquals(AppStartMetrics.AppStartType.WARM, metrics.appStartType)
   }
+
+  // region app start extension
+
+  @Test
+  fun `getExtendedAppStartSpan returns NoOpSpan when no extension is active`() {
+    assertSame(NoOpSpan.getInstance(), AppStartMetrics.getInstance().extendedAppStartSpan)
+  }
+
+  @Test
+  fun `extendAppStart creates a pending extended span`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    assertTrue(metrics.isExtendedAppStartPending)
+    assertTrue(metrics.pendingExtendedAppStartSpan != null)
+  }
+
+  @Test
+  fun `getExtendedAppStartSpan returns the active span while extending`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    assertSame<ISpan?>(metrics.pendingExtendedAppStartSpan, metrics.extendedAppStartSpan)
+  }
+
+  @Test
+  fun `extendAppStart is ignored when already extended`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    val first = metrics.pendingExtendedAppStartSpan
+    metrics.extendAppStart()
+    assertSame(first, metrics.pendingExtendedAppStartSpan)
+  }
+
+  @Test
+  fun `extendAppStart is ignored after start measurements were sent`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.onAppStartSpansSent()
+    metrics.extendAppStart()
+    assertNull(metrics.pendingExtendedAppStartSpan)
+    assertSame(NoOpSpan.getInstance(), metrics.extendedAppStartSpan)
+  }
+
+  @Test
+  fun `extendAppStart is ignored after the first frame was drawn`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.onFirstFrameDrawn()
+    metrics.extendAppStart()
+    assertNull(metrics.pendingExtendedAppStartSpan)
+  }
+
+  @Test
+  fun `finishAppStart without a prior extendAppStart is a no-op`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.finishAppStart()
+    assertNull(metrics.extendedAppStartEndTime)
+  }
+
+  @Test
+  fun `finishAppStart finishes the extended span`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    metrics.finishAppStart()
+    assertTrue(metrics.pendingExtendedAppStartSpan!!.isFinished)
+  }
+
+  @Test
+  fun `getExtendedAppStartEndTime returns the finish date on a user finish`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    val pending = metrics.pendingExtendedAppStartSpan!!
+    val finishDate = SentryNanotimeDate()
+    val child = mock<ISpan>()
+    whenever(child.isFinished).thenReturn(true)
+    whenever(child.status).thenReturn(SpanStatus.OK)
+    whenever(child.finishDate).thenReturn(finishDate)
+    pending.materialize(child)
+    assertSame(finishDate, metrics.extendedAppStartEndTime)
+  }
+
+  @Test
+  fun `getExtendedAppStartEndTime is null when the extension finished via deadline`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    val pending = metrics.pendingExtendedAppStartSpan!!
+    val child = mock<ISpan>()
+    whenever(child.isFinished).thenReturn(true)
+    whenever(child.status).thenReturn(SpanStatus.DEADLINE_EXCEEDED)
+    whenever(child.finishDate).thenReturn(SentryNanotimeDate())
+    pending.materialize(child)
+    assertNull(metrics.extendedAppStartEndTime)
+  }
+
+  @Test
+  fun `markExtendedAppStartMaterialized clears the pending state`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    assertTrue(metrics.isExtendedAppStartPending)
+    metrics.markExtendedAppStartMaterialized()
+    assertFalse(metrics.isExtendedAppStartPending)
+  }
+
+  @Test
+  fun `clear resets the extension state`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    metrics.clear()
+    assertFalse(metrics.isExtendedAppStartPending)
+    assertNull(metrics.pendingExtendedAppStartSpan)
+    assertSame(NoOpSpan.getInstance(), metrics.extendedAppStartSpan)
+  }
+
+  // endregion
 }
