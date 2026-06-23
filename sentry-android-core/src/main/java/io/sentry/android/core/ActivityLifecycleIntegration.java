@@ -65,6 +65,8 @@ public final class ActivityLifecycleIntegration
   static final String APP_START_COLD = "app.start.cold";
   static final String TTID_OP = "ui.load.initial_display";
   static final String TTFD_OP = "ui.load.full_display";
+  static final String APP_START_EXTENDED_OP = "app.start.extended_app_start";
+  static final String APP_START_EXTENDED_DESC = "Extended App Start";
   static final long TTFD_TIMEOUT_MILLIS = 25000;
   // If a headless app start and the following activity's ui.load are more than this far apart, they
   // are treated as unrelated and not connected into the same trace.
@@ -277,6 +279,13 @@ public final class ActivityLifecycleIntegration
           appStartTransactionOptions.setStartTimestamp(appStartTime);
           appStartTransactionOptions.setAppStartTransaction(appStartSamplingDecision != null);
           appStartTransactionOptions.setOrigin(APP_START_TRACE_ORIGIN);
+          // When the app start is being extended, hold the transaction open until the extended span
+          // finishes (or the deadline forces it).
+          if (AppStartMetrics.getInstance().isExtendedAppStartPending()) {
+            appStartTransactionOptions.setWaitForChildren(true);
+            appStartTransactionOptions.setDeadlineTimeout(
+                deadlineTimeoutMillis <= 0 ? null : deadlineTimeoutMillis);
+          }
 
           appStartTransaction =
               scopes.startTransaction(
@@ -291,6 +300,7 @@ public final class ActivityLifecycleIntegration
           if (appStartReason != null) {
             appStartTransaction.setData(APP_START_REASON_DATA, appStartReason);
           }
+          materializeExtendedAppStart(appStartTransaction);
         }
 
         // Continue either the foreground app.start above or an earlier headless app.start.
@@ -349,6 +359,9 @@ public final class ActivityLifecycleIntegration
                     spanOptions);
 
             finishAppStartSpan();
+            // The ui.load transaction already waits for children + has a deadline, so parenting the
+            // extended span here keeps it open until the extension finishes.
+            materializeExtendedAppStart(appStartSpan);
           }
         }
         final @NotNull ISpan ttidSpan =
@@ -398,6 +411,30 @@ public final class ActivityLifecycleIntegration
 
   private void setSpanOrigin(final @NotNull SpanOptions spanOptions) {
     spanOptions.setOrigin(TRACE_ORIGIN);
+  }
+
+  /**
+   * Materializes a pending extended app start span as a child of {@code parent}. The parent's
+   * transaction must have {@code waitForChildren} + a deadline set so it stays open until the
+   * extension finishes (or the deadline forces it).
+   */
+  private void materializeExtendedAppStart(final @NotNull ISpan parent) {
+    final @NotNull AppStartMetrics metrics = AppStartMetrics.getInstance();
+    final @Nullable ExtendedAppStartSpan ext = metrics.getPendingExtendedAppStartSpan();
+    if (ext == null) {
+      return;
+    }
+    final SpanOptions spanOptions = new SpanOptions();
+    setSpanOrigin(spanOptions);
+    final @NotNull ISpan child =
+        parent.startChild(
+            APP_START_EXTENDED_OP,
+            APP_START_EXTENDED_DESC,
+            ext.getStartDate(),
+            Instrumenter.SENTRY,
+            spanOptions);
+    ext.materialize(child);
+    metrics.markExtendedAppStartMaterialized();
   }
 
   /**
@@ -998,6 +1035,13 @@ public final class ActivityLifecycleIntegration
     txnOptions.setBindToScope(false);
     txnOptions.setStartTimestamp(startTime);
     txnOptions.setOrigin(APP_START_TRACE_ORIGIN);
+    // When the app start is being extended, hold the headless transaction open until the extended
+    // span finishes (or the deadline forces it).
+    if (metrics.isExtendedAppStartPending()) {
+      txnOptions.setWaitForChildren(true);
+      final long deadlineTimeoutMillis = options.getDeadlineTimeout();
+      txnOptions.setDeadlineTimeout(deadlineTimeoutMillis <= 0 ? null : deadlineTimeoutMillis);
+    }
 
     final @NotNull TransactionContext txnContext =
         new TransactionContext(
@@ -1020,6 +1064,7 @@ public final class ActivityLifecycleIntegration
     // time to continue this trace.
     metrics.setAppStartEndTime(endTime);
 
+    materializeExtendedAppStart(transaction);
     transaction.finish(SpanStatus.OK, endTime);
   }
 }

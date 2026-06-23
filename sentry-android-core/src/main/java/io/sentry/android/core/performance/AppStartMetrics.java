@@ -292,6 +292,9 @@ public class AppStartMetrics extends ActivityLifecycleCallbacksAdapter
     shouldSendStartMeasurements = false;
     contentProviderOnCreates.clear();
     activityLifecycles.clear();
+    // Reset extension state so a stale extended span can't affect a later (e.g. warm) app start.
+    extendedAppStartSpan = null;
+    extendedAppStartMaterialized = false;
   }
 
   public boolean shouldSendStartMeasurements(final boolean ignoreForegroundCheck) {
@@ -359,7 +362,11 @@ public class AppStartMetrics extends ActivityLifecycleCallbacksAdapter
             .log(SentryLevel.WARNING, "App start is already being extended.");
         return;
       }
-      if (!shouldSendStartMeasurements()
+      // Ignore the foreground check: headless app starts (broadcast/service) run in a
+      // non-foreground process but can still be extended. The window guards below still reject an
+      // extension once an activity was created, the first frame was drawn, or measurements were
+      // already sent.
+      if (!shouldSendStartMeasurements(true)
           || activeActivitiesCounter.get() > 0
           || firstDrawDone.get()) {
         Sentry.getCurrentScopes()
@@ -389,6 +396,11 @@ public class AppStartMetrics extends ActivityLifecycleCallbacksAdapter
       return span;
     }
     return NoOpSpan.getInstance();
+  }
+
+  /** Whether the app start was extended (regardless of materialization or finish state). */
+  public boolean isAppStartExtended() {
+    return extendedAppStartSpan != null;
   }
 
   /** Whether an extension has been requested but not yet materialized into a real child span. */

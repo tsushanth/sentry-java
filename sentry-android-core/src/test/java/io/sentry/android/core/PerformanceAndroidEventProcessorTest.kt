@@ -4,7 +4,9 @@ import android.content.ContentProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.sentry.Hint
 import io.sentry.IScopes
+import io.sentry.ISpan
 import io.sentry.MeasurementUnit
+import io.sentry.SentryLongDate
 import io.sentry.SentryTracer
 import io.sentry.SpanContext
 import io.sentry.SpanDataConvention
@@ -191,6 +193,59 @@ class PerformanceAndroidEventProcessorTest {
 
     assertEquals(20f, tr.measurements[MeasurementValue.KEY_APP_START_COLD]?.value)
   }
+
+  // region extended app start
+
+  private fun extendAppStartFinishedWith(status: SpanStatus, endMs: Long) {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.extendAppStart()
+    val child = mock<ISpan>()
+    whenever(child.isFinished).thenReturn(true)
+    whenever(child.status).thenReturn(status)
+    whenever(child.finishDate).thenReturn(SentryLongDate(endMs * 1_000_000L))
+    metrics.pendingExtendedAppStartSpan!!.materialize(child)
+  }
+
+  @Test
+  fun `extended app start uses the extended end for the cold start measurement`() {
+    val sut = fixture.getSut(enablePerformanceV2 = true)
+    val metrics = AppStartMetrics.getInstance()
+    metrics.appStartType = AppStartType.COLD
+    metrics.isAppLaunchedInForeground = true
+    metrics.appStartTimeSpan.apply {
+      setStartedAt(1)
+      setStoppedAt(100)
+    }
+    val startMs = metrics.appStartTimeSpan.startTimestampMs
+    extendAppStartFinishedWith(SpanStatus.OK, startMs + 500)
+
+    var tr = createUiLoadTransactionWithAppStartChildSpan()
+    tr = sut.process(tr, Hint())
+
+    assertEquals(500f, tr.measurements[MeasurementValue.KEY_APP_START_COLD]?.value)
+  }
+
+  @Test
+  fun `extended app start that hit the deadline suppresses the measurement`() {
+    val sut = fixture.getSut(enablePerformanceV2 = true)
+    val metrics = AppStartMetrics.getInstance()
+    metrics.appStartType = AppStartType.COLD
+    metrics.isAppLaunchedInForeground = true
+    metrics.appStartTimeSpan.apply {
+      setStartedAt(1)
+      setStoppedAt(100)
+    }
+    val startMs = metrics.appStartTimeSpan.startTimestampMs
+    extendAppStartFinishedWith(SpanStatus.DEADLINE_EXCEEDED, startMs + 30_000)
+
+    var tr = createUiLoadTransactionWithAppStartChildSpan()
+    tr = sut.process(tr, Hint())
+
+    assertFalse(tr.measurements.containsKey(MeasurementValue.KEY_APP_START_COLD))
+    assertFalse(tr.measurements.containsKey(MeasurementValue.KEY_APP_START_WARM))
+  }
+
+  // endregion
 
   @Test
   fun `add cold start measurement for performance-v2`() {

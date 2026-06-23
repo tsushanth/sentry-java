@@ -1060,6 +1060,14 @@ class AppStartMetricsTest {
   }
 
   @Test
+  fun `extendAppStart is allowed when not launched in foreground (headless)`() {
+    val metrics = AppStartMetrics.getInstance()
+    metrics.isAppLaunchedInForeground = false
+    metrics.extendAppStart()
+    assertTrue(metrics.isExtendedAppStartPending)
+  }
+
+  @Test
   fun `extendAppStart is ignored after start measurements were sent`() {
     val metrics = AppStartMetrics.getInstance()
     metrics.onAppStartSpansSent()

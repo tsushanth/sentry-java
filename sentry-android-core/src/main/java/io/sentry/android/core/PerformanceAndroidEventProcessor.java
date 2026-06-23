@@ -10,6 +10,7 @@ import io.sentry.EventProcessor;
 import io.sentry.Hint;
 import io.sentry.ISentryLifecycleToken;
 import io.sentry.MeasurementUnit;
+import io.sentry.SentryDate;
 import io.sentry.SentryEvent;
 import io.sentry.SpanContext;
 import io.sentry.SpanDataConvention;
@@ -29,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -101,20 +103,45 @@ final class PerformanceAndroidEventProcessor implements EventProcessor {
               isHeadlessStandaloneAppStartTxn
                   ? appStartMetrics.getAppStartTimeSpanForHeadless()
                   : appStartMetrics.getAppStartTimeSpanWithFallback(options);
-          final long appStartUpDurationMs = appStartTimeSpan.getDurationMs();
 
-          // if appStartUpDurationMs is 0, metrics are not ready to be sent
-          if (appStartUpDurationMs != 0) {
-            final MeasurementValue value =
-                new MeasurementValue(
-                    (float) appStartUpDurationMs, MeasurementUnit.Duration.MILLISECOND.apiName());
+          final long appStartUpDurationMs;
+          // Whether the app start is ready to be finalized (spans attached, marked sent). When not
+          // ready (duration 0), we leave it for a later transaction to retry.
+          final boolean appStartReady;
+          if (appStartMetrics.isAppStartExtended()) {
+            final @Nullable SentryDate extendedEnd = appStartMetrics.getExtendedAppStartEndTime();
+            if (extendedEnd != null && appStartTimeSpan.hasStarted()) {
+              // The user finished the extension: measure from process start to the extended end.
+              // The end stays within the 1-minute cap thanks to the 30s deadline timeout.
+              appStartUpDurationMs =
+                  TimeUnit.NANOSECONDS.toMillis(extendedEnd.nanoTimestamp())
+                      - appStartTimeSpan.getStartTimestampMs();
+              appStartReady = appStartUpDurationMs != 0;
+            } else {
+              // The extension hit the deadline (or no valid start): suppress the measurement so we
+              // never emit an artificially inflated value, but still finalize the app start spans.
+              appStartUpDurationMs = 0;
+              appStartReady = appStartTimeSpan.hasStarted();
+            }
+          } else {
+            appStartUpDurationMs = appStartTimeSpan.getDurationMs();
+            // if appStartUpDurationMs is 0, metrics are not ready to be sent
+            appStartReady = appStartUpDurationMs != 0;
+          }
 
-            final String appStartKey =
-                appStartMetrics.getAppStartType() == AppStartMetrics.AppStartType.COLD
-                    ? MeasurementValue.KEY_APP_START_COLD
-                    : MeasurementValue.KEY_APP_START_WARM;
+          if (appStartReady) {
+            if (appStartUpDurationMs != 0) {
+              final MeasurementValue value =
+                  new MeasurementValue(
+                      (float) appStartUpDurationMs, MeasurementUnit.Duration.MILLISECOND.apiName());
 
-            transaction.getMeasurements().put(appStartKey, value);
+              final String appStartKey =
+                  appStartMetrics.getAppStartType() == AppStartMetrics.AppStartType.COLD
+                      ? MeasurementValue.KEY_APP_START_COLD
+                      : MeasurementValue.KEY_APP_START_WARM;
+
+              transaction.getMeasurements().put(appStartKey, value);
+            }
 
             attachAppStartSpans(appStartMetrics, transaction);
             appStartMetrics.onAppStartSpansSent();
